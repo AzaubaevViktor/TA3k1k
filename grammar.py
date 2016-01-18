@@ -61,6 +61,31 @@ class Parser:
         ))
 
 
+class FirstTable:
+    def __init__(self):
+        self.table = {}
+
+    def __getitem__(self, item) -> set:
+        if isinstance(item, str):
+            return self.table[item]
+
+        elif isinstance(item, list):
+            tokens = item
+            intersect = set(self.table[tokens[0]])
+            all_tokens = set()
+            for token in tokens:
+                intersect.intersection_update(self.table[token])
+                all_tokens.update(self.table[token].difference({False}))
+            all_tokens.update(intersect)
+            return all_tokens
+
+    def __setitem__(self, key: str, value: set):
+        self.table[key] = value
+
+    def __str__(self) -> str:
+        return str(self.table)
+
+
 class Grammar:
     """
     Класс-анализатор контекстно-свободных грамматик
@@ -92,7 +117,6 @@ class Grammar:
         self.nonterminals.update(self.start_symbol)
         self.alphabet = self.terminals.union(self.nonterminals)
         self.rules = []
-        self.first_table = {}
 
         self._parse_rules(grammar.get('rules', []))
 
@@ -102,6 +126,8 @@ class Grammar:
         self._derivations = []
 
         self.parser = Parser({k: k for k in self.terminals})
+        self.first_table = FirstTable()
+        self.follow_table = {}
 
     def _check(self):
         term_nonterms = self.terminals.intersection(self.nonterminals)
@@ -271,6 +297,55 @@ class Grammar:
                     if False not in self.first_table[token]:
                         break
 
+    def _create_follow_table(self):
+        # 1 Step
+        for nterm in self.nonterminals:
+            self.follow_table[nterm] = set()
+
+        self.follow_table[self.start_symbol] = set('$')
+
+        is_added = True
+        while is_added:
+            is_added = False
+
+            for rule in self.rules:
+                # 3 Step 2 part
+                try:
+                    token = rule.body[-1]
+                    if token in self.nonterminals:
+                        diff = self.follow_table[rule.head[0]].difference(self.follow_table[token])
+                        if diff:
+                            is_added = True
+                            self.follow_table[token].update(diff)
+                except IndexError:
+                    pass
+
+                if rule.body_len == 0:
+                    continue
+
+                for i in range(len(rule.body) - 1):
+                    nterm = rule.body[i]
+                    if nterm in self.nonterminals:
+                        # 2 Step
+                        to_follow = self.first_table[rule.body[i+1:]]
+                        if False in to_follow:
+                            # 3 Step 2 part
+                            diff = self.follow_table[rule.head[0]].difference(self.follow_table[nterm])
+                            if diff:
+                                is_added = True
+                                self.follow_table[nterm].update(diff)
+
+                        to_follow.difference_update({False})
+                        diff = to_follow.difference(self.follow_table[nterm])
+                        if diff:
+                            is_added = True
+                            self.follow_table[nterm].update(diff)
+
+
+
+
+
+
 
 class Rule:
     """
@@ -359,5 +434,12 @@ if __name__ == "__main__":
 
     print("================ FIRST FOLLOW ================")
     grammar._create_first_table()
+    print("FIRST:")
     print(grammar.first_table)
+    print("id):", grammar.first_table[['id', ')']])
+    print("E'T':", grammar.first_table[["E'", "T'"]])
+
+    grammar._create_follow_table()
+    print("FOLLOW:")
+    print(grammar.follow_table)
 
