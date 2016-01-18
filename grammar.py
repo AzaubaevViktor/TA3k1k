@@ -33,6 +33,7 @@ class Parser:
     def __init__(self, primitives: dict):
         self.primitives = primitives
         self.primitives[" "] = False
+        self.raises = None
         self._tokens = []
 
     def parse(self, string: str) -> list:
@@ -42,7 +43,7 @@ class Parser:
             self._tokens = []
             return tokens
         else:
-            return False
+            raise self.raises
 
     def _parse(self, string: str):
         if not string:
@@ -55,7 +56,7 @@ class Parser:
                     return True
                 else:
                     self._tokens.pop()
-        raise ParserException("Ошибка при разборе подстроки `{}`".format(
+        self.raises = ParserException("Ошибка при разборе подстроки `{}`".format(
                 string
         ))
 
@@ -91,13 +92,29 @@ class Grammar:
         self.nonterminals.update(self.start_symbol)
         self.alphabet = self.terminals.union(self.nonterminals)
         self.rules = []
+        self.first_table = {}
 
+        self._parse_rules(grammar.get('rules', []))
+
+        # Ограничение на длинну магазина
+        self.max_mem_len = max([r.rel_len for r in self.rules]) * len(self.rules) * 10
+        self.cur_max_mem = self.max_mem_len
+        self._derivations = []
+
+        self.parser = Parser({k: k for k in self.terminals})
+
+    def _check(self):
+        term_nonterms = self.terminals.intersection(self.nonterminals)
+        if term_nonterms:
+            raise GrammarException("символы {} являются одновременно терминалами и нетерминалами".format(term_nonterms))
+
+    def _parse_rules(self, rules):
         primitives = {k: k for k in self.alphabet}
         primitives["->"] = self.ARROW
         primitives["|"] = self.OR
 
         parser = Parser(primitives)
-        for rule in grammar.get("rules"):
+        for rule in rules:
             tokens = parser.parse(rule)
             try:
                 arrow_index = tokens.index(self.ARROW)
@@ -119,23 +136,12 @@ class Grammar:
                 self.rules.append(Rule(self, rule_head, subrule_body))
 
             self.rules.append(Rule(self, rule_head, rule_body))
-        # Ограничение на длинну магазина
-        self.max_mem_len = max([r.rel_len for r in self.rules]) * len(self.rules) * 10
-        self.cur_max_mem = self.max_mem_len
-        self._derivations = []
-
-        self.parser = Parser({k: k for k in self.terminals})
-
-    def _check(self):
-        term_nonterms = self.terminals.intersection(self.nonterminals)
-        if term_nonterms:
-            raise GrammarException("символы {} являются одновременно терминалами и нетерминалами".format(term_nonterms))
 
     def add_derivation(self, tokens, memory, cause):
         self._derivations.append((copy(tokens), copy(memory), cause))
 
     def _prepare(self, string: str) -> list:
-        tokens = self.parser.parse(string)
+        tokens = clear_arr(self.parser.parse(string))
         self.cur_max_mem = self.max_mem_len * len(tokens)
         self._derivations = []
         return tokens
@@ -234,6 +240,37 @@ class Grammar:
                     cause=cause
             ))
 
+    def _create_first_table(self):
+        # False -- empty
+        # '$' -- end
+        for term in self.terminals:
+            self.first_table[term] = {term}
+
+        for nterm in self.nonterminals:
+            self.first_table[nterm] = set()
+
+        for rule in self.rules:
+            if rule.head_len != 1:
+                raise GrammarException("Невозможно применить FIRST FOLLOW, заоловок правила {} "
+                                       "состоит больше, чем из одного токена".format(rule))
+            if not rule.body:
+                self.first_table[rule.head[0]].update([False])
+
+        is_added = True
+        while is_added:
+            is_added = False
+            for rule in self.rules:
+                nterm = rule.head[0]
+                # Добавляем
+                for token in rule.body:
+                    diff = self.first_table[token].difference(self.first_table[nterm])
+                    if diff:
+                        self.first_table[nterm].update(diff)
+                        is_added = True
+
+                    if False not in self.first_table[token]:
+                        break
+
 
 class Rule:
     """
@@ -309,7 +346,7 @@ class Rule:
 
 
 if __name__ == "__main__":
-    file = json.load(open('palindrom.json', 'rt'))
+    file = json.load(open('test_ff.json', 'rt'))
     grammar = Grammar(file)
     string = input("Введите распознаваемую строку:")
 
@@ -319,4 +356,8 @@ if __name__ == "__main__":
     print("============ Правосторонний разбор ===========")
     grammar.rightmost(string)
     grammar.print_derivations()
+
+    print("================ FIRST FOLLOW ================")
+    grammar._create_first_table()
+    print(grammar.first_table)
 

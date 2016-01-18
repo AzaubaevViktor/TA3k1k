@@ -1,0 +1,12 @@
+{
+  "help": "Распознаёт строки вида id + id * id",
+  "terminal": "( ) + * id",
+  "nonterminal": "E E' T T' F",
+  "rules": [
+    "E->TE'",
+    "E'->+TE'|",
+    "T->FT'",
+    "T'->*FT'|",
+    "F->(E)|id"
+  ]
+}
