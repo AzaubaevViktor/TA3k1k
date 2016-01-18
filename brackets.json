@@ -1,0 +1,7 @@
+{
+  "terminal": "( )",
+  "nonterminal": "S",
+  "rules": [
+    "S->(S)S|S(S)|"
+  ]
+}

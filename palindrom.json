@@ -1,0 +1,7 @@
+{
+  "terminal": "a b",
+  "nonterminal": "S",
+  "rules": [
+    "S->aSa|bSb|aa|bb"
+  ]
+}
