@@ -76,14 +76,22 @@ class FirstTable:
             for token in tokens:
                 intersect.intersection_update(self.table[token])
                 all_tokens.update(self.table[token].difference({False}))
+                if False not in self.table[token]:
+                    break
             all_tokens.update(intersect)
             return all_tokens
 
     def __setitem__(self, key: str, value: set):
         self.table[key] = value
 
+    def keys(self):
+        return self.table.keys()
+
     def __str__(self) -> str:
         return str(self.table)
+
+    def items(self):
+        return self.table.items()
 
 
 class Grammar:
@@ -166,8 +174,11 @@ class Grammar:
     def add_derivation(self, tokens, memory, cause):
         self._derivations.append((copy(tokens), copy(memory), cause))
 
+    def _parse_string(self, string: str) -> list:
+        return clear_arr(self.parser.parse(string))
+
     def _prepare(self, string: str) -> list:
-        tokens = clear_arr(self.parser.parse(string))
+        tokens = self._parse_string(string)
         self.cur_max_mem = self.max_mem_len * len(tokens)
         self._derivations = []
         return tokens
@@ -297,6 +308,29 @@ class Grammar:
                     if False not in self.first_table[token]:
                         break
 
+    def _check_first_follow_table(self):
+        for rule1 in self.rules:
+            for rule2 in self.rules:
+                if rule1 != rule2 and rule1.head == rule2.head:
+                    a = rule1.body
+                    b = rule2.body
+                    if not a or not b:
+                        continue
+
+                    fia = self.first_table[a]
+                    fib = self.first_table[b]
+                    foA = self.follow_table[rule1.head[0]]
+
+                    if fia.intersection(fib):
+                        print("Правила `{}` и `{}`".format(rule1, rule2))
+                        return False
+
+                    if False in fib:
+                        if fia.intersection(foA):
+                            print("Правила `{}` и `{}`".format(rule1, rule2))
+                            return False
+        return True
+
     def _create_follow_table(self):
         # 1 Step
         for nterm in self.nonterminals:
@@ -341,7 +375,49 @@ class Grammar:
                             is_added = True
                             self.follow_table[nterm].update(diff)
 
+    def _create_syntax_table(self):
+        M = {}
+        for rule in self.rules:
+            if not rule.body and '$' in self.follow_table[rule.head[0]]:
+                for token in self.follow_table[rule.head[0]]:
+                    M[(rule.head[0], token)] = rule
+                continue
 
+            for a in (self.first_table[rule.body] - {False}):
+                M[(rule.head[0], a)] = rule
+
+            if False in self.first_table[rule.body]:
+                for term in self.follow_table[rule.head[0]]:
+                    M[(rule.head[0], term)] = rule
+
+        self.syntax_table = M
+
+    def ll1(self, string: str):
+        tokens = self._parse_string(string)
+        tokens.append('$')
+        stack = ['$', self.start_symbol]
+        ip = 0
+        while stack[-1] != '$':
+            print(stack, tokens[ip:], end=" ")
+            try:
+                rule = self.syntax_table[(stack[-1], tokens[ip])]
+            except KeyError:
+                rule = None
+
+            if stack[-1] == tokens[ip]:
+                stack.pop()
+                ip += 1
+                print("ip++")
+            elif stack[-1] in self.terminals:
+                raise GrammarException("Ошибка при распознавании")
+            elif not rule:
+                raise GrammarException("Не найдено правило для (`{}`, `{}`)".format(stack[-1], tokens[ip]))
+            else:
+                print("Use {}".format(rule))
+                stack.pop()
+                stack.extend(rule.body[::-1])
+
+        return True
 
 
 
@@ -419,9 +495,12 @@ class Rule:
     def __str__(self):
         return "{} -> {}".format(" ".join(self.head), " ".join(self.body))
 
+    def __repr__(self):
+        return str(self)
+
 
 if __name__ == "__main__":
-    file = json.load(open('test_ff.json', 'rt'))
+    file = json.load(open('brackets.json', 'rt'))
     grammar = Grammar(file)
     string = input("Введите распознаваемую строку:")
 
@@ -435,11 +514,30 @@ if __name__ == "__main__":
     print("================ FIRST FOLLOW ================")
     grammar._create_first_table()
     print("FIRST:")
-    print(grammar.first_table)
-    print("id):", grammar.first_table[['id', ')']])
-    print("E'T':", grammar.first_table[["E'", "T'"]])
+    for k, v in grammar.first_table.items():
+        print("{}: {}".format(k, v))
+    # print("id):", grammar.first_table[['id', ')']])
+    # print("E'T':", grammar.first_table[["E'", "T'"]])
 
     grammar._create_follow_table()
     print("FOLLOW:")
-    print(grammar.follow_table)
+    for k, v in grammar.follow_table.items():
+        print("{}: {}".format(k, v))
+
+    if grammar._check_first_follow_table():
+        print("Это LL(1) грамматика")
+    else:
+        print("Это не LL(1) грамматика")
+        exit()
+
+    grammar._create_syntax_table()
+    print("M:")
+    print(grammar.syntax_table)
+
+    print("LL(1):")
+    try:
+        if grammar.ll1(string):
+            print("Распознал!")
+    except GrammarException as e:
+        print(e)
 
